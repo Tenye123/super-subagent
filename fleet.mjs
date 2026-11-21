@@ -18,7 +18,18 @@ import * as rpcDispatch from './lib/dispatch-rpc.mjs';
 import * as jobs from './lib/jobs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const VERSION = '0.2.0';
+
+// 版本只有 package.json 一个来源。
+// 原来这里硬编码 '0.2.0'，而 package.json 升到了 0.3.0，`fleet --help`
+// 印出来的版本就比实际旧 —— 这种不一致在排查"到底装的是哪一版"时很误导。
+const VERSION = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(HERE, 'package.json'), 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 /* ---------------- 参数解析（不引第三方库） ---------------- */
 
