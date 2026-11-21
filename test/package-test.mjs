@@ -141,30 +141,38 @@ console.log('=== 前后端端口必须一致 ===');
   // 这条检查来自一个真实 bug：前端生成的一行命令里写的是 6210，
   // 但脚本实际由 tailnet 监听面（47321）下发。控制端看起来一切正常，
   // 目标机器上却永远 irm 不下来。硬编码端口跨越两个文件，人眼靠不住。
+  //
+  // 后来端口改成可被环境变量覆盖（同一台机器跑多个实例时必需），
+  // 所以这里不再匹配 "const X = 47321"，而是匹配**默认值**：
+  //   Number(process.env.DSH_FLEET_X) || 47321
+  // 匹配不到就等于没有默认值，那本身就是问题。
   const idx = readFileSync(join(ROOT, 'lib', 'index.js'), 'utf8');
   const cli = readFileSync(join(ROOT, 'lib', 'client.js'), 'utf8');
 
-  const apiMatch = /API_PORT\s*=\s*(\d+)/.exec(idx);
-  const beaconMatch = /BEACON_PORT\s*=\s*(\d+)/.exec(idx);
-  ok('index.js 定义了 API_PORT', Boolean(apiMatch), String(apiMatch && apiMatch[1]));
-  ok('index.js 定义了 BEACON_PORT', Boolean(beaconMatch), String(beaconMatch && beaconMatch[1]));
+  const apiMatch = /API_PORT\s*=\s*Number\([^)]*\)\s*\|\|\s*(\d+)/.exec(idx);
+  const beaconMatch = /BEACON_PORT\s*=\s*Number\([^)]*\)\s*\|\|\s*(\d+)/.exec(idx);
+  const lanMatch = /LAN_SCRIPT_PORT\s*=\s*Number\([^)]*\)\s*\|\|\s*(\d+)/.exec(idx);
+
+  ok('index.js 定义了 API_PORT 默认值', Boolean(apiMatch), String(apiMatch && apiMatch[1]));
+  ok('index.js 定义了 BEACON_PORT 默认值', Boolean(beaconMatch), String(beaconMatch && beaconMatch[1]));
+  ok('index.js 定义了 LAN_SCRIPT_PORT 默认值', Boolean(lanMatch), String(lanMatch && lanMatch[1]));
 
   const apiPort = apiMatch ? apiMatch[1] : '';
   const beaconPort = beaconMatch ? beaconMatch[1] : '';
+  const lanPort = lanMatch ? lanMatch[1] : '';
 
-  ok('API 端口与 BEACON 端口不同', apiPort !== beaconPort);
+  ok('API 端口与 BEACON 端口不同', apiPort !== beaconPort, apiPort + ' vs ' + beaconPort);
+  ok('局域网下发端口与 BEACON 端口不同', lanPort !== beaconPort, lanPort + ' vs ' + beaconPort);
+  ok('局域网下发端口与 API 端口不同', lanPort !== apiPort, lanPort + ' vs ' + apiPort);
 
   // 前端调 API 用的必须是 API 端口
-  ok('client.js 用 API 端口调本地 API', cli.includes('127.0.0.1:' + apiPort), apiPort);
+  ok('client.js 用 API 端口调本地 API', cli.includes("'http://127.0.0.1:'") || cli.includes('127.0.0.1:' + apiPort), apiPort);
 
-  // 一行命令里的端口必须是 BEACON 端口（脚本由 tailnet 面下发）
-  const oneLiner = /http:\/\/' \+ ctrlIp \+ ':(\d+)\/setup\.ps1/.exec(cli);
-  ok('client.js 生成了一行命令', Boolean(oneLiner));
-  ok(
-    '一行命令用的是 tailnet 端口 ' + beaconPort,
-    oneLiner ? oneLiner[1] === beaconPort : false,
-    '实际 ' + (oneLiner ? oneLiner[1] : 'n/a'),
-  );
+  // 一行命令的地址现在由服务端返回的 downloadUrl 决定，不再在前端拼端口。
+  // 这是修复"全新机器下不到脚本"那个缺陷的方式：地址必须由服务端按
+  // 目标机器是否已在 tailnet 来决定，前端不能假设。
+  ok('client.js 优先使用服务端返回的 downloadUrl', cli.includes('downloadUrl'), '');
+  ok('client.js 不再硬编码局域网下发端口', !cli.includes(':' + lanPort + '/setup.ps1'), 'lanPort=' + lanPort);
   ok(
     '一行命令没用回环地址',
     !cli.includes("'http://127.0.0.1:" + apiPort + "/setup.ps1'"),

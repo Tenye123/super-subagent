@@ -5,8 +5,18 @@
 //
 // 所以这里不用 127.0.0.1 测，而是用**本机 tailnet 地址**测——
 // 那正是目标机器将来要访问的地址。如果这条通不了，任何前端包装都是假的。
+//
+// 端口用环境变量挪开：插件平时就跑在本机 DSH 里，占着 6210 / 47321，
+// 测试若用同样的端口必然 EADDRINUSE，那种失败跟代码无关。
 
-import { apply } from '../lib/index.js';
+const TEST_API_PORT = 36210;
+const TEST_BEACON_PORT = 37321;
+process.env.DSH_FLEET_API_PORT = String(TEST_API_PORT);
+process.env.DSH_FLEET_BEACON_PORT = String(TEST_BEACON_PORT);
+process.env.DSH_FLEET_LAN_PORT = '37322';
+
+// 必须在设完环境变量之后再导入：端口是模块加载时求值的。
+const { apply } = await import('../lib/index.js');
 
 let pass = 0;
 let fail = 0;
@@ -34,7 +44,7 @@ await new Promise((r) => setTimeout(r, 1200));
 
 console.log('=== 生成本机状态 ===');
 
-const API = 'http://127.0.0.1:6210';
+const API = 'http://127.0.0.1:' + TEST_API_PORT;
 const status = await (await fetch(API + '/status')).json();
 const tailIp = status.self && status.self.tailscaleIp;
 ok('有 tailnet 地址', Boolean(tailIp), JSON.stringify(status.self));
@@ -63,7 +73,7 @@ console.log('');
 console.log('=== 从 tailnet 地址下载脚本（目标机器视角）===');
 
 // 这正是被控端要执行的地址。
-const dlUrl = `http://${tailIp}:47321/setup.ps1?id=${encodeURIComponent(boot.genId)}`;
+const dlUrl = `http://${tailIp}:${TEST_BEACON_PORT}/setup.ps1?id=${encodeURIComponent(boot.genId)}`;
 console.log('  GET ' + dlUrl);
 
 let dl = null;
@@ -91,7 +101,7 @@ console.log('=== 失效与越权路径 ===');
 
 // 1. 错的 id 必须 404，不能返回任何脚本
 {
-  const res = await fetch(`http://${tailIp}:47321/setup.ps1?id=nonexistent`, {
+  const res = await fetch(`http://${tailIp}:${TEST_BEACON_PORT}/setup.ps1?id=nonexistent`, {
     signal: AbortSignal.timeout(10000),
   });
   const body = await res.text();
@@ -101,7 +111,7 @@ console.log('=== 失效与越权路径 ===');
 
 // 2. 没有 id 也必须 404
 {
-  const res = await fetch(`http://${tailIp}:47321/setup.ps1`, {
+  const res = await fetch(`http://${tailIp}:${TEST_BEACON_PORT}/setup.ps1`, {
     signal: AbortSignal.timeout(10000),
   });
   ok('缺 id 返回 404', res.status === 404, 'status=' + res.status);
@@ -109,7 +119,7 @@ console.log('=== 失效与越权路径 ===');
 
 // 3. 该端口上除 /beacon 和 /setup.ps1 外都应 404
 {
-  const res = await fetch(`http://${tailIp}:47321/anything`, {
+  const res = await fetch(`http://${tailIp}:${TEST_BEACON_PORT}/anything`, {
     signal: AbortSignal.timeout(10000),
   });
   ok('未知路径返回 404', res.status === 404, 'status=' + res.status);
@@ -117,7 +127,7 @@ console.log('=== 失效与越权路径 ===');
 
 // 4. 报名接口仍然工作（同一个监听面上两个功能共存）
 {
-  const res = await fetch(`http://${tailIp}:47321/beacon`, {
+  const res = await fetch(`http://${tailIp}:${TEST_BEACON_PORT}/beacon`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ v: 1, token: 'wrong', ts: Date.now(), name: 'x', user: 'x', ips: ['1.2.3.4'] }),
@@ -134,7 +144,7 @@ await new Promise((r) => setTimeout(r, 600));
 // 清理后该端口应当完全关闭，不能留下任何可达的服务
 let closed = false;
 try {
-  await fetch(`http://${tailIp}:47321/setup.ps1?id=x`, {
+  await fetch(`http://${tailIp}:${TEST_BEACON_PORT}/setup.ps1?id=x`, {
     signal: AbortSignal.timeout(3000),
     headers: { connection: 'close' },
   });

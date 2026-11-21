@@ -6,8 +6,22 @@
 //
 // 另外单独验证一件事：任何 handler 抛异常都不能让进程崩掉。
 // 这条用 /run 打一个不存在的设备来触发真实的错误路径。
+//
+// 端口用环境变量挪开（见下方 assignTestPorts）。
+//
+// 为什么必须挪：插件平时就跑在本机 DSH 里，占着 6210 / 47321。测试若坚持
+// 用同样的端口，必然 EADDRINUSE —— 那种失败说明不了代码有问题，只是
+// 两个实例在抢同一个口。曾经因此出现 3 条假失败，很容易被当成真 bug 去查。
 
-import { apply } from '../lib/index.js';
+const TEST_API_PORT = 36210;
+const TEST_BEACON_PORT = 37321;
+const TEST_LAN_PORT = 37322;
+process.env.DSH_FLEET_API_PORT = String(TEST_API_PORT);
+process.env.DSH_FLEET_BEACON_PORT = String(TEST_BEACON_PORT);
+process.env.DSH_FLEET_LAN_PORT = String(TEST_LAN_PORT);
+
+// 必须在设完环境变量之后再导入：端口是模块加载时求值的。
+const { apply } = await import('../lib/index.js');
 
 let pass = 0;
 let fail = 0;
@@ -57,7 +71,7 @@ await new Promise((r) => setTimeout(r, 1200));
 
 ok('记录了启动日志', logs.some((l) => l.includes('本地 API 已启动')), logs.join(' | '));
 
-const BASE = 'http://127.0.0.1:6210';
+const BASE = 'http://127.0.0.1:' + TEST_API_PORT;
 
 /** 发一个请求，返回 {status, json}。失败时把原因带出来。 */
 async function call(method, path, body) {
@@ -85,7 +99,7 @@ console.log('=== GET /status ===');
   ok('ok=true', r.json.ok === true);
   ok('role=controller', r.json.role === 'controller');
   ok('报出自己的 tailscale 地址', Boolean(r.json.self && r.json.self.tailscaleIp), JSON.stringify(r.json.self));
-  ok('报名端口是 47321', r.json.beacon && r.json.beacon.port === 47321);
+  ok('报名端口是 37321（测试用端口）', r.json.beacon && r.json.beacon.port === TEST_BEACON_PORT, String(r.json.beacon && r.json.beacon.port));
   ok('令牌只显示前缀', String(r.json.beacon.tokenPrefix).endsWith('...'));
   console.log('    self=' + JSON.stringify(r.json.self));
 }
