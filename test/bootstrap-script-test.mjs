@@ -147,22 +147,43 @@ console.log('=== 可选参数 ===');
 
 const withKey = gen({ tailscaleAuthKey: 'tskey-auth-example' });
 ok('带 Tailscale auth key 时写进脚本', withKey.includes('tskey-auth-example'));
-// 注意：不能用 includes('may wait') 判断"会不会提示手动登录"。
-// 那句话在 else 分支里，生成的脚本里始终含有这段文本，只有运行时
-// 才决定是否打印。所以要检查的是**分支结构**：auth key 非空时走
-// authkey 那条路，为空时走手动登录那条路。
+// 这里不能靠 includes('may wait') 之类的「出现即通过」判断：那段文案在脚本
+// 里始终存在，只有运行时才决定打不打印。要验证的是**控制流**：
+//   - 有 authkey：authkey 那条路必须排在交互登录之前，且交互登录被跳过
+//   - 无 authkey：必须有可照做的交互指引，且整体等待有上限
+// 重构后结构从 `if ($TailscaleAuthKey) {} else {}` 变成
+// `if (-not $tsIp -and $TailscaleAuthKey) {} if (-not $tsIp) {}`，
+// 因为要先把「已经登录过」这一种情况短路掉。断言跟着意图走，
+// 不要绑死某一种写法。
 {
   const iKey = withKey.indexOf('--authkey');
-  const iWait = withKey.indexOf('may wait');
-  ok('authkey 分支在手动登录提示之前', iKey > 0 && iWait > iKey);
-  const ifIndex = withKey.lastIndexOf('if ($TailscaleAuthKey) {');
-  const elseIndex = withKey.indexOf('} else {', ifIndex);
-  ok('两条登录路径分别写在 if / else 里', ifIndex > 0 && elseIndex > ifIndex && iWait > elseIndex);
+  const iManual = withKey.indexOf('== Action needed: approve this machine in Tailscale ==');
+  ok('authkey 路径存在且排在交互登录之前', iKey > 0 && iManual > iKey);
+  ok('authkey 调用有超时上限', /--authkey[^\n]*-TimeoutSec \d+/.test(withKey));
 }
 
 const noKey = gen();
 ok('不带 auth key 时脚本里 auth key 为空串', noKey.includes("$TailscaleAuthKey = ''"));
-ok('不带 auth key 时仍有手动登录分支', noKey.includes('if (a tailscale login window') || noKey.includes('if a Tailscale login window'));
+ok(
+  '不带 auth key 时给出明确的交互指引',
+  noKey.includes('== Action needed: approve this machine in Tailscale =='),
+);
+ok(
+  '交互指引说明可在任意机器上浏览器打开',
+  noKey.includes('it does not have'),
+);
+ok(
+  '交互指引给出 auth key 的后备地址',
+  noKey.includes('login.tailscale.com/admin/settings/keys'),
+);
+ok(
+  '已登录时短路，不重复触发登录',
+  noKey.includes('Tailscale already logged in'),
+);
+ok(
+  '等待地址的轮询有上限且会报告状态',
+  /for \(\$i = 1; \$i -le 60; \$i\+\+\)/.test(noKey) && noKey.includes('still waiting for an address after'),
+);
 
 const customPort = gen({ sshPort: 2222 });
 ok('自定义 SSH 端口生效', customPort.includes('$SshPort        = 2222'));
