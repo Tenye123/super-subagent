@@ -45,7 +45,13 @@ if (status) {
   ok('本机有 tailnet 地址', Boolean(status.self && status.self.tailscaleIp), String(status.self && status.self.tailscaleIp));
   console.log('    角色: ' + (status.role || '?'));
   console.log('    本机: ' + (status.self ? status.self.tailscaleIp : '?'));
-  console.log('    设备: ' + (Array.isArray(status.devices) ? status.devices.length : '?') + ' 台');
+  // 字段是 counts.devices，不是 devices —— 早期写错过，这里两个都认。
+  const devCount = status.counts && typeof status.counts.devices === 'number'
+    ? status.counts.devices
+    : Array.isArray(status.devices) ? status.devices.length : null;
+  ok('能读到设备数', devCount !== null, String(devCount));
+  console.log('    设备: ' + (devCount === null ? '?' : devCount) + ' 台');
+  ok('报名监听器报告在监听', Boolean(status.beacon && status.beacon.listening), JSON.stringify(status.beacon));
 }
 
 console.log('');
@@ -112,6 +118,85 @@ try {
   }
 } catch (e) {
   ok('GET /scan 成功', false, String(e.message).slice(0, 160));
+}
+
+console.log('');
+console.log('=== 5. 真的能派活（端到端）===');
+
+// 前面四项都是"接线对不对"，这一项才是"真的能不能干活"。
+// 用一句要求极短回答的任务，把往返时间压到最小。
+const readyDevice = await (async () => {
+  try {
+    const r = await fetch(API + '/scan', { signal: AbortSignal.timeout(90000) });
+    const s = await r.json();
+    const list = s.devices || s.results || [];
+    return list.find((d) => d.state === 'ready') || null;
+  } catch {
+    return null;
+  }
+})();
+
+if (!readyDevice) {
+  console.log('  跳过：没有处于 ready 的设备');
+} else {
+  const devName = readyDevice.name;
+  console.log('  目标: ' + devName + ' (' + (readyDevice.tailscaleIp || '?') + ')');
+
+  let taskId = null;
+  try {
+    const r = await fetch(API + '/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        device: devName,
+        task: '只回复两个字：收到。不要做任何其他事，不要调用任何工具。',
+        timeoutMs: 180000,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const j = await r.json();
+    ok('POST /run 接受了任务', r.status === 200 && j.ok === true, JSON.stringify(j).slice(0, 200));
+    taskId = j.taskId || null;
+  } catch (e) {
+    ok('POST /run 接受了任务', false, String(e.message).slice(0, 160));
+  }
+
+  if (taskId) {
+    // 注意响应结构是 { ok, task: { state, result, sessionId, ... } }，
+    // 状态在 task 里而不是顶层。这里曾经读错过，所以写清楚。
+    let final = null;
+    const t0 = Date.now();
+    for (let i = 0; i < 60; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      try {
+        const tr = await fetch(API + '/tasks?id=' + encodeURIComponent(taskId), {
+          signal: AbortSignal.timeout(15000),
+        });
+        const t = await tr.json();
+        const task = t.task || t;
+        if (['done', 'failed', 'timeout', 'cancelled'].includes(task.state)) {
+          final = task;
+          break;
+        }
+      } catch {
+        // 单次轮询失败不算失败，继续等
+      }
+    }
+
+    ok('任务在 3 分钟内结束', final !== null, final ? '' : '超时');
+    if (final) {
+      const secs = Math.round((Date.now() - t0) / 1000);
+      console.log('    耗时: ' + secs + ' 秒');
+      console.log('    状态: ' + final.state);
+      ok('任务成功完成', final.state === 'done', final.error || '');
+      const answer = final.result && final.result.answer;
+      ok('拿到了回答', Boolean(answer), String(answer).slice(0, 100));
+      if (answer) console.log('    回答: ' + String(answer).replace(/\n/g, ' ').slice(0, 120));
+      const sid = final.sessionId || (final.result && final.result.sessionId);
+      ok('有会话 id（可到那边界面继续）', Boolean(sid), String(sid));
+      if (sid) console.log('    会话: ' + sid);
+    }
+  }
 }
 
 console.log('');
