@@ -46,38 +46,64 @@ super-subagent 走的是 DSH 桌面端自己的 Connection RPC：`workspace/crea
 
 ## 安装
 
-前置：两台机器都装 [Tailscale](https://tailscale.com/)，都在同一个 tailnet 里。Node ≥ 20。
+前置：控制端装 [Tailscale](https://tailscale.com/) 并登录；被控端不需要任何准备，
+安装脚本会自己装 Node、OpenSSH Server 和 Tailscale。
 
-### 主控
-
-```powershell
-node fleet.mjs install --role controller
-```
-
-### 代理
+### 控制端：装成一个 DSH 插件
 
 ```powershell
-node fleet.mjs install --role agent
+# 1. 把仓库放到本地任意位置，然后在 DSH 的 profile 里登记
+#    （C:\Users\<你>\.dsh\profiles\desktop\package.json）
 ```
 
-一次装完：Node 检查、DSH、Tailscale、OpenSSH Server、`sshd_config` 加固、防火墙收紧、密钥生成、电源设置（不休眠）、开机自启。
+```jsonc
+{
+  "dependencies": {
+    "dsh-super-subagent": "file:E:/mywork/dsh-fleet"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["...", "dsh-super-subagent"]
+    }
+  }
+}
+```
 
-### 纳管一台代理
+重启 DSH。设置页里会出现 **超级子代理**，带一个图形界面：设备列表、添加设备、派活。
 
-在代理上装完会打印一段 `fleet accept ...` 命令，把它拿到主控上执行：
+它同时会在 tailnet 上开一个报名端口（47321），用来接收新机器的自我注册。
+
+### 被控端：一条命令
+
+在设置页点 **添加设备**，复制那句命令，到目标机器上以管理员身份打开 PowerShell 粘贴：
 
 ```powershell
-fleet enroll --name laptop-a --ip 100.x.x.x --user hp --expires 30d
+irm "http://100.x.x.x:47321/setup.ps1?id=xxxx" -OutFile "$env:TEMP\setup-agent.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-agent.ps1"
 ```
 
-然后在代理上批准：
+跑完那台机器会自己出现在设备列表里，状态变成「可派活」。不需要手工抄 IP、配密钥、贴公钥。
+
+它做七件事：装 Node → 装 OpenSSH Server → 装 Tailscale → 写入控制端公钥 →
+把 sshd 绑到 tailnet 地址（不碰公司内网）→ 注册 sshd 自愈任务 → 向控制端报名。
+
+> 最后那步「自愈」是为了解决一个真实故障：sshd 绑在 Tailscale 地址上，
+> 但开机时它可能比 Tailscale 先启动，绑不上地址就退出，之后整台机器失联，
+> 只能人到现场。自愈任务会在 Tailscale 就绪后把 sshd 拉起来。
+
+### 保留的命令行方式
+
+图形界面之外，命令行也能用（适合脚本化、或无 GUI 的场合）：
 
 ```powershell
-fleet accept --controller my-pc --pubkey "ssh-ed25519 AAAA..." --expires 30d
+node fleet.mjs install --role controller   # 初始化控制端
+node fleet.mjs list                        # 看设备
+node fleet.mjs ping laptop-a               # 探活
 ```
 
-### 接到 DSH 里当工具用
+### MCP 工具（两种方式都保留）
 
+除了插件界面，还可以把同一套能力接成 MCP 工具，在对话里直接调。
 主控的 `cordis.patch.yml` 加一段：
 
 ```yaml
@@ -96,9 +122,13 @@ fleet accept --controller my-pc --pubkey "ssh-ed25519 AAAA..." --expires 30d
 | 工具 | 作用 |
 |---|---|
 | `mcp__fleet__fleet_list_devices` | 列出已纳管的代理 |
+| `mcp__fleet__fleet_scan` | 扫描 tailnet，判断哪些真能派活 |
+| `mcp__fleet__fleet_add_device` | 生成新机器的接入命令 |
 | `mcp__fleet__fleet_ping` | 探活 |
 | `mcp__fleet__fleet_run_task` | 派活并等结果 |
 | `mcp__fleet__fleet_jobs` | 历史任务 |
+
+插件的界面和 MCP 工具共用 `lib/` 里的同一套实现，不存在两份逻辑。
 
 ## 用法
 
@@ -111,6 +141,22 @@ fleet jobs                        # 历史任务
 ```
 
 不装 MCP 也能用 CLI，两者走同一套实现。
+
+### 「在线」和「可派活」不是一回事
+
+界面上这两个状态严格分开，因为混在一起会让人对着"在线"的设备反复点派活却一直失败：
+
+| 状态 | 含义 | 怎么办 |
+|---|---|---|
+| 可派活 | SSH 通 + 那边 DSH 桌面端在跑 | 直接用 |
+| DSH 未启动 | SSH 通，但没有 DSH 桌面端进程 | 让对方打开 DSH |
+| 连不上 | 22 端口不通 | sshd 没起来，或被防火墙拦了 |
+| 未探测 | 在 tailnet 里可见，但未登记 | 用「添加设备」接入 |
+| 离线 | tailnet 里显示不在线 | 对方关机或掉线 |
+
+实测过这个区分的必要性：A 在 `tailscale status` 里显示 `online=true`，
+但从控制端连它的 22 端口一直超时——sshd 绑在 Tailscale 地址上，
+而那次开机时 Tailscale 还没拿到 IP，绑定失败后 sshd 退出了。
 
 ## 安全模型
 

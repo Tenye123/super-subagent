@@ -75,8 +75,15 @@ try {
   const list = await request('tools/list', {});
   const tools = list.result?.tools || [];
   const names = tools.map((t) => t.name);
-  check('tools/list 返回 4 个工具', tools.length === 4, `(实际 ${tools.length}: ${names.join(', ')})`);
-  for (const want of ['fleet_list_devices', 'fleet_ping', 'fleet_run_task', 'fleet_jobs']) {
+  check('tools/list 返回 6 个工具', tools.length === 6, `(实际 ${tools.length}: ${names.join(', ')})`);
+  for (const want of [
+    'fleet_list_devices',
+    'fleet_ping',
+    'fleet_run_task',
+    'fleet_jobs',
+    'fleet_scan',
+    'fleet_add_device',
+  ]) {
     check(`存在工具 ${want}`, names.includes(want));
   }
   // 每个工具必须有 inputSchema，否则模型无法正确调用

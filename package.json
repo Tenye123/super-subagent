@@ -1,13 +1,21 @@
 {
-  "name": "dsh-fleet",
-  "version": "0.2.0",
-  "description": "把多台 Windows 设备组织成 DeepSeek Harness 的超级子代理集群：一台主控派活，其余在自己的设备上干活，会话留在那边的界面上可继续",
+  "name": "dsh-super-subagent",
+  "version": "0.3.0",
+  "description": "把多台 Windows 设备组织成 DeepSeek Harness 的超级子代理集群：控制端是一个 DSH 插件，被控端一条命令接入，会话留在那边的界面上可继续",
   "type": "module",
+  "private": true,
   "bin": {
     "fleet": "./fleet.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./mcp": "./mcp/server.mjs"
   },
   "files": [
     "fleet.mjs",
@@ -15,21 +23,38 @@
     "mcp/",
     "install/",
     "tools/",
-    "README.md"
+    "cordis.patch.yml",
+    "locale/",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node test/all.mjs",
     "test:rpc": "node test/rpc-dispatch-test.mjs",
+    "test:plugin": "node test/plugin-test.mjs",
+    "test:beacon": "node test/beacon-test.mjs",
+    "test:bootstrap": "node test/bootstrap-script-test.mjs",
     "mcp": "node mcp/server.mjs"
   },
   "keywords": [
     "deepseek-harness",
     "dsh",
+    "dsh-plugin",
     "mcp",
     "remote-agent",
     "tailscale",
-    "ssh"
+    "ssh",
+    "multi-machine"
   ],
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {},
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-locale"]
+    }
+  }
 }

@@ -74,12 +74,16 @@ let id = 0;
 {
   const r = await call(++id, 'tools/list', {});
   const tools = r.result?.tools || [];
-  check('返回工具列表', tools.length === 4, `共 ${tools.length} 个`);
+  check('返回工具列表', tools.length === 6, `共 ${tools.length} 个`);
   const names = tools.map((t) => t.name);
   check('含 fleet_run_task', names.includes('fleet_run_task'));
   check('含 fleet_list_devices', names.includes('fleet_list_devices'));
   check('含 fleet_ping', names.includes('fleet_ping'));
   check('含 fleet_jobs', names.includes('fleet_jobs'));
+  // 设备发现与接入：这是"新机器怎么进来"的部分，不能少。
+  // 少了它们，用户就只能手工配 IP 和密钥。
+  check('含 fleet_scan', names.includes('fleet_scan'));
+  check('含 fleet_add_device', names.includes('fleet_add_device'));
   check('每个工具都有 inputSchema', tools.every((t) => t.inputSchema?.type === 'object'));
   check('run_task 必填 device 与 task',
     JSON.stringify(tools.find((t) => t.name === 'fleet_run_task').inputSchema.required) === '["device","task"]');
