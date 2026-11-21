@@ -1,0 +1,46 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 运行产物
+jobs/
+*.log
+_events/
+_reports/
+
+# bootstrap 运行时打包出来的分发件（每次 bootstrap 重新生成）
+lib/.bootstrap/
+
+# 本地状态：这些是每台机器自己的，绝不能提交
+config.json
+.dsh-fleet/
+*.key
+*.pem
+id_ed25519*
+id_rsa*
+.credentials.yaml
+_a_credentials.yaml
+
+# 密钥与凭据的常见变体
+*.secret
+*.token
+.env
+.env.*
+secrets.*
+
+# 测试与调试产物
+coverage/
+*.tmp
+.tmp-*
+*.patch
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 打包产物
+dist/*.msi
+dist/*.exe

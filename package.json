@@ -1,0 +1,35 @@
+{
+  "name": "dsh-fleet",
+  "version": "0.2.0",
+  "description": "把多台 Windows 设备组织成 DeepSeek Harness 的超级子代理集群：一台主控派活，其余在自己的设备上干活，会话留在那边的界面上可继续",
+  "type": "module",
+  "bin": {
+    "fleet": "./fleet.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "fleet.mjs",
+    "lib/",
+    "mcp/",
+    "install/",
+    "tools/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/all.mjs",
+    "test:rpc": "node test/rpc-dispatch-test.mjs",
+    "mcp": "node mcp/server.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "mcp",
+    "remote-agent",
+    "tailscale",
+    "ssh"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}

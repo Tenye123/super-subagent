@@ -1,0 +1,13 @@
+# 统一换行，避免跨平台 diff 噪音。
+# .ps1 必须是 CRLF：PowerShell 5.1 按 GBK 读无 BOM 脚本，纯 LF 在某些
+# 情况下会被读成一行，导致语法错误。
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.msi binary
+*.exe binary
+*.gz binary
