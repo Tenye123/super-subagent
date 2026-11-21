@@ -114,7 +114,12 @@ const target = process.env.FLEET_TEST_TARGET;
 if (!target) {
   console.log('  跳过：未设置 FLEET_TEST_TARGET');
 } else {
-  const key = join(process.env.USERPROFILE || '', '.dsh-fleet', 'keys', 'laptop-a.key');
+  // 用哪把私钥由 FLEET_TEST_KEY 决定，缺省仍是 laptop-a。
+  // 真机上只有控制端那一把是被授权的（安装脚本只写 controller 的公钥），
+  // 拿别的 key 去连必然 Permission denied —— 那是产品行为正确，不是缺陷。
+  const key = process.env.FLEET_TEST_KEY
+    ? process.env.FLEET_TEST_KEY
+    : join(process.env.USERPROFILE || '', '.dsh-fleet', 'keys', 'laptop-a.key');
   const runRemote = (script) => {
     // 走 stdin 传脚本：ssh 的参数化引用在 Windows 上极难写对，
     // 之前已经因此失败过多次。

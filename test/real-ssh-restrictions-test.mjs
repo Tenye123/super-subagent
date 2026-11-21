@@ -15,7 +15,11 @@ import net from 'node:net';
 import path from 'node:path';
 import os from 'node:os';
 
-const KEY = path.join(os.homedir(), '.dsh-fleet', 'keys', 'laptop-a.key');
+// FLEET_TEST_KEY 决定用哪把私钥。真机上只授权了控制端那把（安装脚本
+// 只写 controller 的公钥），所以测 VM 时要显式指过去；缺省仍是 laptop-a。
+const KEY = process.env.FLEET_TEST_KEY
+  ? process.env.FLEET_TEST_KEY
+  : path.join(os.homedir(), '.dsh-fleet', 'keys', 'laptop-a.key');
 const KH = path.join(os.homedir(), '.dsh-fleet', 'known_hosts');
 
 // 这个测试会真的连一台代理机并试图越权，所以目标必须由环境变量给。
