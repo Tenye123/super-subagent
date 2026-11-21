@@ -1,6 +1,8 @@
-# dsh-fleet
+# super-subagent
 
 把多台电脑组织成一台"会分身"的开发机。
+
+> 项目内部代号 `dsh-fleet`，命令、包名、目录名都沿用这个前缀。
 
 主控（controller）派活，代理（agent）干活。代理不是远程 shell，而是**有自己设备的子代理**——它有自己的文件系统、自己的网络位置、自己的已装工具和浏览器登录态。
 
@@ -28,7 +30,7 @@
 |---|---|---|---|
 | RDP | ✗ 家庭版不能当服务端 | 系统组件 | 卡（独占会话/抢 GPU） |
 | 向日葵 / ToDesk | ✓ | 第三方软件 | 卡，且公司资产装这类软件有合规风险 |
-| **dsh-fleet** | ✓ | 只有 OpenSSH + Tailscale | **不卡**，代理干活不占主控资源 |
+| **super-subagent** | ✓ | 只有 OpenSSH + Tailscale | **不卡**，代理干活不占主控资源 |
 
 关键点：**代理上的工作不经过主控的 CPU/GPU/网络**。主控只发一条任务描述，代理用自己的算力跑完，回一段文本。主控的资源占用约等于一次 SSH 往返。
 
@@ -38,7 +40,7 @@
 
 `ssh agent "dsh --print '...'"` 能拿到答案，但那次会话**不登记进任何 workspace**。你到代理机上打开 DSH 界面，什么都看不到——活干了，没法复查、没法接着追问。
 
-dsh-fleet 走的是 DSH 桌面端自己的 Connection RPC：`workspace/create` → `session/create` → `session/prompt`。会话由应用自己的 `SessionController` 创建，所以**它出现在那边的界面上**，可以继续聊。
+super-subagent 走的是 DSH 桌面端自己的 Connection RPC：`workspace/create` → `session/create` → `session/prompt`。会话由应用自己的 `SessionController` 创建，所以**它出现在那边的界面上**，可以继续聊。
 
 这是本项目的核心，也是最难的部分——细节见 [为什么这么实现](#为什么这么实现)。
 
@@ -139,7 +141,7 @@ restrict,expiry-time="202612201725",from="100.64.0.0/10,192.168.137.0/24" ssh-ed
 
 ### 不放开 loopback
 
-DSH 桌面端只监听 `127.0.0.1`，这是有意的设计。dsh-fleet 不去改它，而是借 SSH 隧道到那边再打 loopback——**不为了派活去削弱产品本身的安全边界**。
+DSH 桌面端只监听 `127.0.0.1`，这是有意的设计。super-subagent 不去改它，而是借 SSH 隧道到那边再打 loopback——**不为了派活去削弱产品本身的安全边界**。
 
 ## 为什么这么实现
 
