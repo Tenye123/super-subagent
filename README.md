@@ -264,6 +264,134 @@ workspace=C:\Users\<user>; temp=C:\Users\<user>\AppData\Local\Temp
 
 所以要记账：既收到 EOF、又没有在飞的调用，才退出。
 
+## 代理端开机自愈
+
+派活依赖两样东西在开机后自己起来：**sshd 绑上 Tailscale 地址**，以及**DSH 桌面端在用户会话里运行**。这两件事在 Windows 上都不会自动成立，必须显式处理。
+
+### 陷阱一：sshd 启动竞态
+
+`sshd_config` 里可以写 `ListenAddress <tailnet-ip>`，但**开机时那个地址往往还不存在**：
+
+```
+tailscaled  启动于 09:39:16
+sshd        启动于 09:39:17     ← 只差 1 秒
+```
+
+服务依赖（`sc.exe config sshd depend= Tailscale`）只保证**启动顺序**，不保证 Tailscale 已经把 `100.x` 地址挂到网卡上。sshd 启动时绑定失败，静默退回只绑 `127.0.0.1`，**之后永不重试**。
+
+诊断只需要一条命令：
+
+```powershell
+Get-NetTCPConnection -LocalPort 22 -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess
+```
+
+修复前只有 `127.0.0.1`，没有 `100.x`。而 `sshd -t` 返回 0 且无输出——**配置本身没错，错在运行态绑定**。所以不要从配置文件里找答案。
+
+更隐蔽的是：`OpenSSH/Operational` 事件日志会明确记下它只监听回环：
+
+```
+9:39:17  sshd: Server listening on 127.0.0.1 port 22.
+```
+
+**这个问题每次开机都会复现**，不是偶发。
+
+### 陷阱二：自愈脚本只报警不修复
+
+机器上可能已经存在一个自愈脚本，但要检查它是否真的会动手。曾见过这样的分支：
+
+```powershell
+if ($onTs.Count -eq 0) {
+  Say "sshd is running but not listening on the tailscale address"
+  exit 1        # ← 发现了故障，写条日志就退出
+}
+```
+
+日志里留下准确记录、然后什么都不做，比没有脚本更危险——它制造了"有人在管这件事"的错觉。
+
+**正确写法是主动重启**（此时 Tailscale 地址已就绪）：
+
+```powershell
+if ($onTs.Count -eq 0) {
+  Say "sshd is running but not listening on the tailscale address; restarting sshd"
+  Restart-Service sshd -Force
+  Start-Sleep -Seconds 3
+  # 重新读取监听地址确认已恢复
+}
+```
+
+配合 **BootTrigger**（延迟 1 分钟，之后每 5 分钟重试），而不是一次性的 `TimeTrigger`。
+
+### 陷阱三：DSH 不开机自启
+
+DSH 桌面端的开机自启常常是**名义上有、实际无效**——指向未来某一天的 `TimeTrigger`：
+
+```xml
+<TimeTrigger>
+  <StartBoundary>2027-11-20T20:55:47+08:00</StartBoundary>   <!-- 2027 年才跑一次 -->
+</TimeTrigger>
+```
+
+重启后它永远不会触发。应该用 `LogonTrigger`：
+
+```xml
+<LogonTrigger>
+  <Enabled>true</Enabled>
+  <UserId>HOST\user</UserId>
+  <Delay>PT15S</Delay>        <!-- 等登录瞬间的资源竞争过去 -->
+</LogonTrigger>
+```
+
+同时必须把 `StopOnIdleEnd` 设为 `false`——默认值 `true` 会在系统空闲 10 分钟后**杀掉 DSH**。
+
+### 陷阱四：DSH 需要登录会话
+
+DSH 是 Electron 桌面程序，`desktop-host` 跑在**用户会话**里（`SessionId=1`），不是 session 0。headless profile 只提供 CLI，**不提供 fleet 派活所需的 RPC 服务**。
+
+所以「开机自启」必须配「自动登录」，否则机器停在登录界面，DSH 不会起来：
+
+```
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+  AutoAdminLogon    = 1
+  DefaultUserName   = <user>
+  DefaultDomainName = .
+  DefaultPassword   = <明文>        ← Windows 自动登录只能明文，没有加密方案
+```
+
+这是安全性上的真实代价，需要明确接受。选择「不自动登录」也是合理的：那样重启后人工登录一次即可。
+
+### 锁屏会挡住什么
+
+锁屏**不结束会话**，进程继续运行，所以 SSH、派活、读写文件、改注册表全部照常。挡住的只有**需要交互式桌面的操作**——截图、模拟键鼠。
+
+若要让 DSH 在锁屏后仍可被观察，用组策略彻底禁用锁屏：
+
+```powershell
+New-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization' `
+  -Name NoLockScreen -Value 1 -PropertyType DWord -Force
+```
+
+这是**策略级**设置，优先级高于 ToDesk 之类远程工具自己调用的锁屏 API。代价是屏幕内容始终敞开，需要自行权衡。
+
+### 验证方式
+
+重启后逐项核对，缺一不可：
+
+| 检查 | 命令 | 期望 |
+|---|---|---|
+| 确实重启了 | `(Get-CimInstance Win32_OperatingSystem).LastBootUpTime` | 更新时间戳 |
+| 自动登录成功 | `Get-Process LogonUI` + `query user` | 无 `LogonUI`，会话 `Active` |
+| DSH 起来了 | `Get-Process 'DeepSeek Harness'` | 进程存在 |
+| **端口活着** | 见下 | 有任意 LISTEN 端口 |
+| SSH 绑对地址 | `Get-NetTCPConnection -LocalPort 22 -State Listen` | 回环 + `100.x`，**无** `0.0.0.0` |
+
+```powershell
+# 不要查固定端口号——每次启动都变
+$p = @(Get-Process 'DeepSeek Harness').Id
+Get-NetTCPConnection -State Listen | Where-Object { $p -contains $_.OwningProcess }
+```
+
+实测一次完整冷启动：断开到恢复 **90 秒**，其中自愈任务在开机 78 秒时检测到问题并重启 sshd，DSH 在开机 34 秒时由登录触发拉起。
+
 ## 测试
 
 ```powershell
@@ -279,9 +407,11 @@ npm run test:rpc      # 只测 Connection RPC 派活（需要真实代理在线�
 
 - **只支持 Windows**。沿用 Windows 的 SSH 加固、ACL 和 PowerShell。Linux/macOS 代理还没做。
 - **代理上必须有 DSH 桌面端且在运行**。只有 CLI 不够——CLI 不提供 `/api` 服务。
+- **DSH 需要登录会话**。它是 Electron 桌面程序，服务端跑在用户会话里。要做到无人值守，必须配自动登录（注册表明文密码）；不配则重启后需人工登录一次。
+- **sshd 绑定 Tailscale 地址存在开机竞态**。每次开机都可能只绑到 `127.0.0.1`，必须靠自愈任务补救。这是 Windows 服务启动顺序与 Tailscale 地址分配之间的固有竞争，无法纯靠配置消除。
 - **一次一个任务**。同一代理并发派活没做排队，会各自建会话。
 - **会话续接未完成**。`--session` 参数目前只是记录了 id，没有真的往已有会话里追加。
-- 桌面端每次重启要重新发现端口，所以派活比纯 SSH 多一次往返。
+- 桌面端每次重启要重新发现端口，所以派活比纯 SSH 多一次往返。**端口号每次都变，任何地方都不要写死**。
 
 ## 许可
 
