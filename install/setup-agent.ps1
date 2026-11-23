@@ -120,7 +120,7 @@ if (-not $isElevated) {
 }
 
 Write-Host ""
-Write-Host "  dsh-fleet agent bootstrap" -ForegroundColor Cyan
+Write-Host "  super-subagent agent bootstrap" -ForegroundColor Cyan
 Write-Host "  This machine will accept SSH from your controller, over Tailscale only." -ForegroundColor DarkGray
 Write-Host ""
 

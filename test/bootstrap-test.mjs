@@ -76,7 +76,7 @@ const h = spawnSync(process.execPath, [path.join(extracted, 'fleet.mjs'), 'help'
   encoding: 'utf8',
   timeout: 30_000,
 });
-check('新机器上 help 正常', h.status === 0 && /dsh-fleet/.test(h.stdout));
+check('新机器上 help 正常', h.status === 0 && /super-subagent/.test(h.stdout));
 
 server.close();
 fs.rmSync(fake, { recursive: true, force: true });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dsh-fleet —— 把多台设备组织成 DSH 超级子代理集群
+// super-subagent —— 把多台设备组织成 DSH 超级子代理集群
 //
 // 设计原则：
 //   主控（controller）派活，代理（agent）干活。
@@ -60,7 +60,7 @@ function cmdDoctor(args) {
   const items = probe.checks({ role });
   const sum = probe.summarize(items);
 
-  log.info(`\ndsh-fleet doctor  (role: ${role})\n`);
+  log.info(`\nsuper-subagent doctor  (role: ${role})\n`);
   for (const it of items) {
     const mark =
       it.level === 'ok' ? '\x1b[32m✓\x1b[0m'
@@ -802,7 +802,7 @@ function cmdInstall(args) {
 
 function printHelp() {
   console.log(`
-dsh-fleet v${VERSION} —— 把多台设备组织成 DSH 超级子代理集群
+super-subagent v${VERSION} —— 把多台设备组织成 DSH 超级子代理集群
 
 主控（controller）：你日常操作的那台，负责派活
 代理（agent）    ：有自己设备、自己文件系统的执行端
